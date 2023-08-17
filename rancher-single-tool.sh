@@ -95,8 +95,9 @@ function helpmenu() {
 -s <ssl hostname>           This will renew your SSL certificates with a newly generated set good for 10 years upon upgrade.  When using this command you will also have to apply a kubectl yaml for each preexisting cluster in order for your downstream clusters to be upgraded properly.  You will receive a print out of commands to run on one controlplane node of each cluster attached to your Rancher installation.
         Usage Example: bash ${SCRIPT_NAME} -s vps.rancherserver.com
 
--p <ssl ip>           This will renew your SSL certificates with a newly generated set good for 10 years upon upgrade.
-        Usage Example: bash ${SCRIPT_NAME} -s 127.0.0.1
+-p <ssl ip>                 This will adding subject alt names with a newly generated set good for 10 years upon upgrade. It will be set up along side with DNS name. You could set 1 IP or list of IPs seperated by comma
+        Usage Example: bash ${SCRIPT_NAME} -p 127.0.0.1
+                       bash ${SCRIPT_NAME} -p 127.0.0.1,172.0.0.10
 "
     exit 1
 }
@@ -353,8 +354,8 @@ function gen10yearcerts() {
         recho "Generating new 10-year SSL certificates for your Rancher installation."
         echo docker build -f genericssl/Dockerfile -t genericssl:v1
         docker build -f genericssl/Dockerfile genericssl -t genericssl:v1
-        echo 'docker run -e CA_SUBJECT="Generic CA" -e CA_EXPIRE="3650" -e SSL_EXPIRE="3650" -e SSL_SUBJECT="${RANCHER_SSL_HOSTNAME}" -e SSL_DNS="${RANCHER_SSL_HOSTNAME}" -e SSL_IP="${RANCHER_SSL_IP}" -e SILENT="true" genericssl:v1'
-        docker run -e CA_SUBJECT="Generic CA" -e CA_EXPIRE="3650" -e SSL_EXPIRE="3650" -e SSL_SUBJECT="${RANCHER_SSL_HOSTNAME}" -e SSL_DNS="${RANCHER_SSL_HOSTNAME}" -e SSL_IP="${RANCHER_SSL_IP}" -e SILENT="true" genericssl:v1
+        echo docker run -v /etc/rancherssl/certs:/certs -e CA_SUBJECT="Generic CA" -e CA_EXPIRE="3650" -e SSL_EXPIRE="3650" -e SSL_SUBJECT="${RANCHER_SSL_HOSTNAME}" -e SSL_DNS="${RANCHER_SSL_HOSTNAME}" -e SSL_IP="${RANCHER_SSL_IP}" -e SILENT="true" genericssl:v1
+        docker run -v /etc/rancherssl/certs:/certs -e CA_SUBJECT="Generic CA" -e CA_EXPIRE="3650" -e SSL_EXPIRE="3650" -e SSL_SUBJECT="${RANCHER_SSL_HOSTNAME}" -e SSL_DNS="${RANCHER_SSL_HOSTNAME}" -e SSL_IP="${RANCHER_SSL_IP}" -e SILENT="true" genericssl:v1
         checkpipecmd "Failed to generate certificates from docker image genericssl:v1"
     fi
 }
