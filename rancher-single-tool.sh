@@ -53,6 +53,7 @@ RANCHER_IMAGE_NAME="rancher/rancher"
 LOGFILE="${SCRIPT_NAME}-${START_TIME}.log"
 DEFAULT_DOCKER_OPTIONS="-d --restart=unless-stopped -p 80:80 -p 443:443"
 DEFAULT_RANCHER_OPTIONS=""
+DEFAULT_RANCHER_SSL_IP=""
 DEFAULT_D_AUDITLOGPATH="--env=AUDIT_LOG_PATH=/var/log/auditlog/rancher-api-audit.log"
 DEFAULT_D_AUDITLOGMAXAGE="--env=AUDIT_LOG_MAXAGE=10"
 DEFAULT_D_AUDITLOGMAXBACKUP="--env=AUDIT_LOG_MAXBACKUP=10"
@@ -93,10 +94,13 @@ function helpmenu() {
 
 -s <ssl hostname>           This will renew your SSL certificates with a newly generated set good for 10 years upon upgrade.  When using this command you will also have to apply a kubectl yaml for each preexisting cluster in order for your downstream clusters to be upgraded properly.  You will receive a print out of commands to run on one controlplane node of each cluster attached to your Rancher installation.
         Usage Example: bash ${SCRIPT_NAME} -s vps.rancherserver.com
+
+-p <ssl ip>           This will renew your SSL certificates with a newly generated set good for 10 years upon upgrade.
+        Usage Example: bash ${SCRIPT_NAME} -s 127.0.0.1
 "
     exit 1
 }
-while getopts "hyfxeiI:c:b:t:s:d:r:v:" opt; do
+while getopts "hyfxeiI:c:b:t:s:p:d:r:v:" opt; do
     case ${opt} in
     i) # process option i: Create backup images from docker volumes
         createbackupimagesfromvolumes
@@ -152,6 +156,14 @@ while getopts "hyfxeiI:c:b:t:s:d:r:v:" opt; do
         grecho "curl -LO https://github.com/patrick0057/cluster-agent-tool/raw/master/cluster-agent-tool.sh"
         grecho "bash cluster-agent-tool.sh -fya'save' -u'admin'"
         echo
+        ;;
+    p) # set Subject Alt Names IP (1 IP or list of IPs seperated by `,`)
+        if [[ "$OPTARG" == "default" ]]; then
+            RANCHER_SSL_IP="${DEFAULT_RANCHER_SSL_IP}"
+        else
+            RANCHER_SSL_IP=$OPTARG
+        fi
+        grecho "Rancher Subject Alt Names IP: ${red}${RANCHER_SSL_IP}${reset}"
         ;;
     d) # process option d: set docker options
         if [[ "$OPTARG" == "default" ]]; then
@@ -259,7 +271,7 @@ function getranchercontainerid() {
             #We found a running Rancher server, let's start there
             RANCHERSERVER=($(docker ps | grep -E "${RANCHER_IMAGE_NAME}:|${RANCHER_IMAGE_NAME} " | awk '{ print $1 }'))
             if [[ "${FORCE_OPTION}" != "yes" ]]; then
-                if [[ "${#RANCHERSERVER[@]}" > 1 ]]; then
+                if [[ "${#RANCHERSERVER[@]}" -gt 1 ]]; then
                     grecho "More than one Rancher server found, suggesting the first Rancher server found!"
                 fi
                 #grecho "Providing full output of 'docker ps' for reference."
@@ -339,9 +351,11 @@ function getrancherversion() {
 function gen10yearcerts() {
     if [[ "${RANCHER_SSL_HOSTNAME}" != "" ]]; then
         recho "Generating new 10-year SSL certificates for your Rancher installation."
-        echo docker run -v /etc/rancherssl/certs:/certs -e CA_SUBJECT="Generic CA" -e CA_EXPIRE="3650" -e SSL_EXPIRE="3650" -e SSL_SUBJECT="${RANCHER_SSL_HOSTNAME}" -e SSL_DNS="${RANCHER_SSL_HOSTNAME}" -e SILENT="true" patrick0057/genericssl
-        docker run -v /etc/rancherssl/certs:/certs -e CA_SUBJECT="Generic CA" -e CA_EXPIRE="3650" -e SSL_EXPIRE="3650" -e SSL_SUBJECT="${RANCHER_SSL_HOSTNAME}" -e SSL_DNS="${RANCHER_SSL_HOSTNAME}" -e SILENT="true" patrick0057/genericssl
-        checkpipecmd "Failed to generate certificates from docker image patrick0057/genericssl"
+        echo docker build -f genericssl/Dockerfile -t genericssl:v1
+        docker build -f genericssl/Dockerfile genericssl -t genericssl:v1
+        echo 'docker run -e CA_SUBJECT="Generic CA" -e CA_EXPIRE="3650" -e SSL_EXPIRE="3650" -e SSL_SUBJECT="${RANCHER_SSL_HOSTNAME}" -e SSL_DNS="${RANCHER_SSL_HOSTNAME}" -e SSL_IP="${RANCHER_SSL_IP}" -e SILENT="true" genericssl:v1'
+        docker run -e CA_SUBJECT="Generic CA" -e CA_EXPIRE="3650" -e SSL_EXPIRE="3650" -e SSL_SUBJECT="${RANCHER_SSL_HOSTNAME}" -e SSL_DNS="${RANCHER_SSL_HOSTNAME}" -e SSL_IP="${RANCHER_SSL_IP}" -e SILENT="true" genericssl:v1
+        checkpipecmd "Failed to generate certificates from docker image genericssl:v1"
     fi
 }
 
@@ -409,9 +423,7 @@ function installrancher() {
 
     recho "Launching the new Rancher container."
     echo "docker run ${DOCKER_OPTIONS} ${SSLVOLUMES} ${RANCHER_IMAGE_NAME}:${NEW_VERSION} ${RANCHER_OPTIONS}"
-    echo docker run ${DOCKER_OPTIONS} ${SSLVOLUMES} ${RANCHER_IMAGE_NAME}:${NEW_VERSION} ${RANCHER_OPTIONS}
     NEW_RANCHERSERVER=$(docker run ${DOCKER_OPTIONS} ${SSLVOLUMES} ${RANCHER_IMAGE_NAME}:${NEW_VERSION} ${RANCHER_OPTIONS})
-
     checkpipecmd "Unable to start new Rancher container, aborting script!"
 }
 
@@ -504,13 +516,13 @@ function setoptions() {
         shopt -s nocasematch
         #Give user a way to explicitly set rancher options back to ""
         if [[ "${RANCHER_OPTIONS// /}" == "none" ]]; then
-        #unset case insensitive
-        shopt -u nocasematch
+            #unset case insensitive
+            shopt -u nocasematch
 
             RANCHER_OPTIONS=""
         else
-        #unset case insensitive
-        shopt -u nocasematch
+            #unset case insensitive
+            shopt -u nocasematch
 
             if [[ "${RANCHER_OPTIONS// /}" == "" ]]; then
                 if [[ "${TASK}" != "install" ]]; then

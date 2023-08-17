@@ -1,0 +1,3 @@
+[submodule "genericssl"]
+	path = genericssl
+	url = git@github.com:vanvuvuong/genericssl.git
